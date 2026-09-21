@@ -11,35 +11,73 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+Thumbs.db
+desktop.ini
 
-# IntelliJ related
+# IntelliJ / Android Studio related
 *.iml
 *.ipr
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# VS Code
+.vscode/
 
-# Flutter/Dart/Pub related
+# Flutter / Dart / Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
+.packages
 .pub-cache/
 .pub/
-/build/
-/coverage/
+build/
+**/build/
+coverage/
+**/coverage/
 
-# Symbolication related
+# Çevresel Değişkenler ve Hassas Bilgiler (API URL, Secret Key vb.)
+.env
+.env.*
+!.env.example
+
+# Android Keystore ve Gizli Yapılandırma Dosyaları (ÇOK ÖNEMLİ)
+**/android/local.properties
+**/android/key.properties
+**/*.keystore
+**/*.jks
+**/.gradle/
+**/.kotlin/
+**/android/captures/
+**/.cxx/
+
+# Android Studio derleme çıktıları
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+
+# iOS & macOS (Pod, ephemeral ve oluşturulan dosyalar)
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/profile/
+**/ios/debug/
+**/ios/release/
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+
+# Windows ve Linux Masaüstü Geçici Dosyaları
+**/windows/flutter/ephemeral/
+**/linux/flutter/ephemeral/
+
+# Sembol ve Obfuscation dosyaları
 app.*.symbols
-
-# Obfuscation related
 app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release

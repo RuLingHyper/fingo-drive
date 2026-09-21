@@ -1,0 +1,61 @@
+# Sanal Ortam (Virtual Environment)
+venv/
+.venv/
+env/
+ENV/
+
+# Python Önbellek ve Derleme Dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+
+# Veritabanı Dosyaları (SQLite ve geçici kilit/WAL dosyaları)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite3
+*.sqlite
+
+# Çevresel Değişkenler (Şifreler/API Anahtarları)
+.env
+.env.*
+!.env.example
+
+# Kullanıcı Yüklemeleri ve Geçici Dosyalar
+uploads/
+**/uploads/
+media/
+files/
+temp/
+tmp/
+
+# Log Dosyaları
+*.log
+logs/
+
+# IDE ve Editör Yapılandırmaları
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test ve Linter Önbellekleri
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# İşletim Sistemi Dosyaları
+.DS_Store
+Thumbs.db
+desktop.ini
