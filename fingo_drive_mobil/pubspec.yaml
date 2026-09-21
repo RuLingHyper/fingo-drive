@@ -1,0 +1,66 @@
+name: fingo_drive_mobil
+description: "Fingo Drive Mobil Uygulaması"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.0.0
+
+# ---------------------------------------------------------
+# 1. BAĞIMLILIKLAR (KULLANDIĞIMIZ KÜTÜPHANELER)
+# ---------------------------------------------------------
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  audioplayers: ^6.0.0
+  http: ^1.6.0
+  file_picker: ^10.3.7
+  url_launcher: ^6.3.2
+  share_plus: ^12.0.1
+  open_filex: ^4.3.2
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+  shared_preferences: ^2.5.3
+  dio: ^5.7.0
+  path_provider: ^2.1.5
+  permission_handler: ^11.3.1
+  cached_network_image: ^3.4.1
+  video_player: ^2.8.6
+  chewie: ^1.8.1
+
+# ---------------------------------------------------------
+# 2. GELİŞTİRİCİ ARAÇLARI (SADECE KOD YAZARKEN LAZIM)
+# ---------------------------------------------------------
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_native_splash: ^2.4.3
+  flutter_launcher_icons: ^0.14.2
+
+# ---------------------------------------------------------
+# 3. FLUTTER AYARLARI
+# ---------------------------------------------------------
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/logo.png
+
+# ---------------------------------------------------------
+# OTOMATİK AYARLAR (Splash ve İkon)
+# ---------------------------------------------------------
+flutter_native_splash:
+  color: "#3F51B5"
+  image: assets/images/logo.png
+  android_12:
+    image: assets/images/logo.png
+    color: "#3F51B5"
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/logo.png"
+  min_sdk_android: 21
