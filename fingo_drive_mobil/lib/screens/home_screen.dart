@@ -90,19 +90,117 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // --- İNDİRME PENCERESİ (MODAL) ---
+  void _indirmeDialogGoster(
+      ValueNotifier<String> baslik, ValueNotifier<double> ilerleme,
+      {VoidCallback? onCancel}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: ValueListenableBuilder<String>(
+            valueListenable: baslik,
+            builder: (context, val, child) => Row(
+              children: [
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: Colors.indigo,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    val,
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ValueListenableBuilder<double>(
+                valueListenable: ilerleme,
+                builder: (context, value, child) => Column(
+                  children: [
+                    Text(
+                      "%${(value * 100).toStringAsFixed(0)}",
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 22,
+                        color: Colors.indigo,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        value: value > 0 ? value : null,
+                        minHeight: 8,
+                        color: Colors.indigo,
+                        backgroundColor: Colors.indigo.shade100,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            if (onCancel != null)
+              TextButton(
+                onPressed: () {
+                  onCancel();
+                  Navigator.pop(ctx);
+                },
+                child: const Text("İptal",
+                    style: TextStyle(color: Colors.redAccent)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // --- DOSYAYI GEÇİCİ İNDİR VE AÇ (PDF, DOC vb.) ---
   Future<void> _dosyayiGeciciIndirVeAc(String url, String dosyaAdi) async {
-    try {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text("Dosya hazırlanıyor..."),
-        duration: Duration(seconds: 1),
-      ));
+    ValueNotifier<double> ilerleme = ValueNotifier(0.0);
+    ValueNotifier<String> durumBasligi =
+        ValueNotifier("Açılıyor: $dosyaAdi");
+    CancelToken cancelToken = CancelToken();
 
+    _indirmeDialogGoster(durumBasligi, ilerleme, onCancel: () {
+      cancelToken.cancel();
+    });
+
+    try {
       Directory tempDir = await getTemporaryDirectory();
       String savePath = "${tempDir.path}/$dosyaAdi";
 
-      await Dio().download(url, savePath);
+      await Dio().download(
+        url,
+        savePath,
+        cancelToken: cancelToken,
+        onReceiveProgress: (received, total) {
+          if (total > 0) {
+            ilerleme.value = (received / total).clamp(0.0, 1.0);
+          }
+        },
+      );
+
+      if (mounted) {
+        Navigator.pop(context); // İndirme modalını kapat
+      }
 
       var result = await OpenFilex.open(savePath);
 
@@ -115,9 +213,20 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Dosya açılırken hata oluştu"),
-            backgroundColor: Colors.red));
+        Navigator.pop(context); // Dialogu kapat
+      }
+      if (e is DioException && CancelToken.isCancel(e)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text("İndirme iptal edildi"),
+              backgroundColor: Colors.orange));
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text("Dosya açılırken hata oluştu: $e"),
+              backgroundColor: Colors.red));
+        }
       }
     }
   }
@@ -133,19 +242,92 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (tur == 'resim') {
       showDialog(
-          context: context,
-          builder: (ctx) => Dialog(
-              backgroundColor: Colors.transparent,
-              child: Stack(alignment: Alignment.center, children: [
-                InteractiveViewer(child: CachedNetworkImage(imageUrl: url)),
-                Positioned(
-                    top: 10,
-                    right: 10,
-                    child: IconButton(
-                        icon: const Icon(Icons.close,
-                            color: Colors.white, size: 30),
-                        onPressed: () => Navigator.pop(ctx)))
-              ])));
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: Colors.black.withValues(alpha: 0.9),
+          insetPadding: EdgeInsets.zero,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Center(
+                  child: CachedNetworkImage(
+                    imageUrl: url,
+                    placeholder: (context, url) => const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(color: Colors.white),
+                        SizedBox(height: 12),
+                        Text(
+                          "Resim yükleniyor...",
+                          style: TextStyle(color: Colors.white70, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                    errorWidget: (context, url, error) => const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.broken_image,
+                            color: Colors.white70, size: 48),
+                        SizedBox(height: 8),
+                        Text("Resim yüklenemedi",
+                            style: TextStyle(color: Colors.white70)),
+                      ],
+                    ),
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  padding: EdgeInsets.only(
+                    top: MediaQuery.of(ctx).padding.top + 8,
+                    left: 16,
+                    right: 8,
+                    bottom: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black87,
+                        Colors.black.withValues(alpha: 0.0),
+                      ],
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          dosya['isim'] ?? "",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded,
+                            color: Colors.white, size: 28),
+                        tooltip: "Kapat",
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     } else if (tur == 'muzik') {
       showDialog(
           context: context,
@@ -182,14 +364,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- DOSYA SİLME ---
-  Future<void> _dosyaSil(String dosyaAdi) async {
+  // --- DOSYA VE KLASÖR SİLME ---
+  Future<void> _dosyaSil(String dosyaAdi, {bool isKlasor = false}) async {
     String tamYol = mevcutYol.isEmpty ? dosyaAdi : "$mevcutYol/$dosyaAdi";
     bool? onay = await showDialog(
         context: context,
         builder: (c) => AlertDialog(
-              title: const Text("Silinsin mi?"),
-              content: Text("'$dosyaAdi' kalıcı olarak silinecek."),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              title: Text(isKlasor ? "Klasör Silinsin mi?" : "Silinsin mi?"),
+              content: Text(isKlasor
+                  ? "'$dosyaAdi' klasörü ve içindeki tüm dosyalar kalıcı olarak silinecek."
+                  : "'$dosyaAdi' kalıcı olarak silinecek."),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(c, false),
@@ -197,7 +383,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ElevatedButton(
                     style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red,
-                        foregroundColor: Colors.white),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10))),
                     onPressed: () => Navigator.pop(c, true),
                     child: const Text("Sil")),
               ],
@@ -310,62 +498,108 @@ class _HomeScreenState extends State<HomeScreen> {
           content: Text("İzin gerekli!"), backgroundColor: Colors.orange));
       return;
     }
-    try {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("İndirme başlatıldı..."),
-          duration: Duration(seconds: 1)));
 
+    ValueNotifier<double> ilerleme = ValueNotifier(0.0);
+    ValueNotifier<String> durumBasligi =
+        ValueNotifier("İndiriliyor: $dosyaAdi");
+    CancelToken cancelToken = CancelToken();
+
+    _indirmeDialogGoster(durumBasligi, ilerleme, onCancel: () {
+      cancelToken.cancel();
+    });
+
+    try {
       String savePath = await _kayitYoluGetir(dosyaAdi, false);
       String tamYol = mevcutYol.isEmpty ? dosyaAdi : "$mevcutYol/$dosyaAdi";
       String downloadUrl = await ApiService.getFileUrl(widget.username, tamYol);
 
-      await Dio().download(downloadUrl, savePath);
+      await Dio().download(
+        downloadUrl,
+        savePath,
+        cancelToken: cancelToken,
+        onReceiveProgress: (received, total) {
+          if (total > 0) {
+            ilerleme.value = (received / total).clamp(0.0, 1.0);
+          }
+        },
+      );
 
       if (!mounted) return;
+      Navigator.pop(context); // İndirme modalını kapat
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("İndirildi: $savePath"),
+          content: Text("✅ İndirildi: $dosyaAdi"),
           backgroundColor: Colors.green));
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Hata: $e"), backgroundColor: Colors.red));
+      if (mounted) {
+        Navigator.pop(context); // Dialogu kapat
+      }
+      if (e is DioException && CancelToken.isCancel(e)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text("İndirme iptal edildi"),
+              backgroundColor: Colors.orange));
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text("Hata: $e"), backgroundColor: Colors.red));
+        }
+      }
     }
   }
 
   // --- KLASÖRÜ ZIP OLARAK İNDİRME ---
   Future<void> _klasorIndir(String klasorAdi) async {
     if (!await _izinIste()) return;
-    setState(() => yukleniyor = true);
-    try {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Klasör sıkıştırılıp indiriliyor...")));
 
+    ValueNotifier<double> ilerleme = ValueNotifier(0.0);
+    ValueNotifier<String> durumBasligi =
+        ValueNotifier("Klasör İndiriliyor: $klasorAdi.zip");
+    CancelToken cancelToken = CancelToken();
+
+    _indirmeDialogGoster(durumBasligi, ilerleme, onCancel: () {
+      cancelToken.cancel();
+    });
+
+    try {
       String savePath = await _kayitYoluGetir("$klasorAdi.zip", false);
       String baseUrl = await ApiService.getBaseUrl();
-      await Dio()
-          .post(
-            "$baseUrl/api/download_folder",
-            data: {
-              "username": widget.username,
-              "path": mevcutYol,
-              "folder_name": klasorAdi
-            },
-            options: Options(responseType: ResponseType.bytes),
-          )
-          .then((r) => File(savePath).writeAsBytesSync(r.data));
+      await Dio().post(
+        "$baseUrl/api/download_folder",
+        data: {
+          "username": widget.username,
+          "path": mevcutYol,
+          "folder_name": klasorAdi
+        },
+        cancelToken: cancelToken,
+        options: Options(responseType: ResponseType.bytes),
+        onReceiveProgress: (received, total) {
+          if (total > 0) {
+            ilerleme.value = (received / total).clamp(0.0, 1.0);
+          }
+        },
+      ).then((r) => File(savePath).writeAsBytesSync(r.data));
 
       if (!mounted) return;
-      setState(() => yukleniyor = false);
+      Navigator.pop(context); // Diyalog kapat
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("Klasör İndirildi: $savePath"),
+          content: Text("✅ Klasör İndirildi: $klasorAdi.zip"),
           backgroundColor: Colors.green));
     } catch (e) {
-      if (!mounted) return;
-      setState(() => yukleniyor = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Klasör indirilemedi"), backgroundColor: Colors.red));
+      if (mounted) {
+        Navigator.pop(context); // Diyalog kapat
+      }
+      if (e is DioException && CancelToken.isCancel(e)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text("İndirme iptal edildi"),
+              backgroundColor: Colors.orange));
+        }
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Klasör indirilemedi"), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -516,50 +750,108 @@ class _HomeScreenState extends State<HomeScreen> {
     return "Bilinmiyor";
   }
 
-  // --- DOSYA BİLGİ PENCERESİ ---
+  // --- DOSYA VE KLASÖR BİLGİ PENCERESİ ---
   void _dosyaBilgileriGoster(Map<String, dynamic> dosya) {
     bool isKlasor = dosya['tur'] == 'klasor';
+    String turEtiketi = isKlasor
+        ? "Klasör"
+        : (dosya['tur'] ?? "dosya").toString().toUpperCase();
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Row(children: const [
-          Icon(Icons.info, color: Colors.indigo),
-          SizedBox(width: 10),
-          Text("Dosya Bilgisi")
-        ]),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
           children: [
-            _bilgiSatiri("Adı:", dosya['isim']),
-            const Divider(),
-            _bilgiSatiri("Boyutu:", _boyutStr(dosya)),
-            const Divider(),
-            _bilgiSatiri(isKlasor ? "Oluşturulma:" : "Yükleme Tarihi:",
-                dosya['tarih'] ?? "-"),
-            const Divider(),
-            _bilgiSatiri("Tür:", dosya['tur'].toString().toUpperCase()),
+            Icon(
+              isKlasor ? Icons.folder_rounded : Icons.insert_drive_file_rounded,
+              color: isKlasor ? Colors.orange : Colors.indigo,
+              size: 26,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              isKlasor ? "Klasör Bilgisi" : "Dosya Bilgisi",
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
           ],
         ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _bilgiSatiri("Adı:", dosya['isim'] ?? "-",
+                  icon: Icons.label_outline),
+              const Divider(height: 12),
+              _bilgiSatiri("Boyutu:", _boyutStr(dosya),
+                  icon: Icons.storage_rounded),
+              const Divider(height: 12),
+              _bilgiSatiri(
+                isKlasor ? "Oluşturulma:" : "Yükleme Tarihi:",
+                dosya['tarih'] ?? "-",
+                icon: Icons.calendar_today_rounded,
+              ),
+              const Divider(height: 12),
+              _bilgiSatiri("Tür:", turEtiketi, icon: Icons.category_outlined),
+              const Divider(height: 12),
+              _bilgiSatiri(
+                "Konum:",
+                mevcutYol.isEmpty ? "/ (Ana Dizin)" : "/$mevcutYol",
+                icon: Icons.folder_open_rounded,
+              ),
+            ],
+          ),
+        ),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text("Tamam"))
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.indigo,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Kapat"),
+          ),
         ],
       ),
     );
   }
 
-  Widget _bilgiSatiri(String baslik, String deger) {
+  Widget _bilgiSatiri(String baslik, String deger, {IconData? icon}) {
     return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 18, color: Colors.indigo.shade600),
+            const SizedBox(width: 8),
+          ],
           SizedBox(
-              width: 80,
-              child: Text(baslik,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, color: Colors.grey))),
-          Expanded(child: Text(deger, style: const TextStyle(fontSize: 15)))
-        ]));
+            width: 110,
+            child: Text(
+              baslik,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              deger,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // --- İZİN İSTEME (Android) ---
@@ -761,49 +1053,78 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
                 title: const Text("Yeni Klasör"),
                 content: TextField(
                     controller: c,
                     decoration: const InputDecoration(
                         hintText: "Klasör Adı", border: OutlineInputBorder())),
                 actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text("İptal")),
                   ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10))),
                       onPressed: () {
+                        if (c.text.trim().isEmpty) return;
                         Navigator.pop(ctx);
-                        _klasorOlustur(c.text);
+                        _klasorOlustur(c.text.trim());
                       },
                       child: const Text("Oluştur"))
                 ]));
   }
 
   // --- YENİDEN ADLANDIRMA PENCERESİ ---
-  Future<void> _dosyaYenidenAdlandirDialog(String eskiIsim) async {
-    String uzanti = eskiIsim.contains('.')
+  Future<void> _dosyaYenidenAdlandirDialog(String eskiIsim,
+      {bool isKlasor = false}) async {
+    String uzanti = (!isKlasor && eskiIsim.contains('.'))
         ? eskiIsim.substring(eskiIsim.lastIndexOf('.'))
         : "";
-    String kok = eskiIsim.contains('.')
+    String kok = (!isKlasor && eskiIsim.contains('.'))
         ? eskiIsim.substring(0, eskiIsim.lastIndexOf('.'))
         : eskiIsim;
     TextEditingController c = TextEditingController(text: kok);
     showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-                title: const Text("Yeniden Adlandır"),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                title: Text(isKlasor
+                    ? "Klasörü Yeniden Adlandır"
+                    : "Dosyayı Yeniden Adlandır"),
                 content: Column(mainAxisSize: MainAxisSize.min, children: [
                   TextField(
                       controller: c,
-                      decoration:
-                          const InputDecoration(labelText: "Yeni İsim")),
-                  if (uzanti.isNotEmpty)
-                    Text("Uzantı ($uzanti) korunacak.",
-                        style:
-                            const TextStyle(fontSize: 12, color: Colors.grey))
+                      decoration: InputDecoration(
+                          labelText: isKlasor ? "Klasör Adı" : "Yeni İsim")),
+                  if (!isKlasor && uzanti.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text("Uzantı ($uzanti) korunacak.",
+                          style:
+                              const TextStyle(fontSize: 12, color: Colors.grey)),
+                    )
                 ]),
                 actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text("İptal")),
                   ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.indigo,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10))),
                       onPressed: () {
+                        if (c.text.trim().isEmpty) return;
                         Navigator.pop(ctx);
-                        _dosyaYenidenAdlandir(eskiIsim, c.text + uzanti);
+                        _dosyaYenidenAdlandir(
+                            eskiIsim, c.text.trim() + uzanti);
                       },
                       child: const Text("Kaydet"))
                 ]));
@@ -823,34 +1144,46 @@ class _HomeScreenState extends State<HomeScreen> {
           backgroundColor: Colors.grey[100],
           appBar: AppBar(
             automaticallyImplyLeading: false,
-            title: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text("Fingo Drive",
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  Row(children: [
-                    const Icon(Icons.person, size: 14, color: Colors.white70),
-                    const SizedBox(width: 4),
-                    Text(widget.username,
-                        style: const TextStyle(
-                            fontSize: 13, color: Colors.white70))
-                  ]),
-                ]),
-                Expanded(
-                  child: Text(
-                    mevcutYol.isEmpty ? "/(Ana Dizin)" : "/$mevcutYol",
-                    style: const TextStyle(fontSize: 12, color: Colors.white70),
-                    textAlign: TextAlign.end,
-                    overflow: TextOverflow.ellipsis,
+            leading: mevcutYol.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    tooltip: "Üst Klasöre Dön",
+                    onPressed: _geriCik,
+                  )
+                : const Padding(
+                    padding: EdgeInsets.only(left: 14),
+                    child: Icon(Icons.cloud_done_rounded, size: 28),
                   ),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "Fingo Drive",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.person, size: 13, color: Colors.white70),
+                    const SizedBox(width: 4),
+                    Text(
+                      widget.username,
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.white70),
+                    ),
+                  ],
                 ),
               ],
             ),
             actions: [
+              IconButton(
+                icon: const Icon(Icons.refresh_rounded),
+                tooltip: "Yenile",
+                onPressed: _dosyalariGetir,
+              ),
               PopupMenuButton<String>(
-                icon: const Icon(Icons.sort),
+                icon: const Icon(Icons.sort_rounded),
                 tooltip: "Sıralama",
                 onSelected: (val) {
                   setState(() {
@@ -874,9 +1207,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               IconButton(
-                  icon: const Icon(Icons.refresh), onPressed: _dosyalariGetir),
-              IconButton(
-                icon: const Icon(Icons.manage_accounts),
+                icon: const Icon(Icons.manage_accounts_outlined),
                 tooltip: "Profil Ayarları",
                 onPressed: () {
                   Navigator.push(
@@ -886,13 +1217,31 @@ class _HomeScreenState extends State<HomeScreen> {
                               currentUsername: widget.username)));
                 },
               ),
-              IconButton(icon: const Icon(Icons.logout), onPressed: _cikisYap),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert_rounded),
+                tooltip: "Daha Fazla",
+                onSelected: (val) {
+                  if (val == 'cikis') _cikisYap();
+                },
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(
+                    value: 'cikis',
+                    child: Row(
+                      children: [
+                        Icon(Icons.logout_rounded, color: Colors.red),
+                        SizedBox(width: 10),
+                        Text("Çıkış Yap", style: TextStyle(color: Colors.red)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           body: Column(
             children: [
               Container(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
                 decoration: const BoxDecoration(
                     color: Colors.indigo,
                     borderRadius: BorderRadius.only(
@@ -920,7 +1269,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               : Colors.orangeAccent),
                       minHeight: 8,
                       borderRadius: BorderRadius.circular(10)),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 18),
                   TextField(
                       controller: _aramaController,
                       onChanged: (v) {
@@ -955,41 +1304,113 @@ class _HomeScreenState extends State<HomeScreen> {
                 ]),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(vertical: 8),
                 child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                        children: ["Hepsi", "Resim", "Video", "Ses", "Diğer"]
-                            .map((e) => Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 5),
-                                child: ChoiceChip(
-                                    label: Text(e),
-                                    selected: secilenKategori == e,
-                                    onSelected: (v) {
-                                      setState(() {
-                                        secilenKategori = e;
-                                        _listeyiFiltrele();
-                                      });
-                                    },
-                                    selectedColor: Colors.orangeAccent
-                                        .withValues(alpha: 0.4),
-                                    backgroundColor: Colors.white)))
-                            .toList())),
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    children: [
+                      {"ad": "Hepsi", "icon": Icons.grid_view_rounded},
+                      {"ad": "Resim", "icon": Icons.image_rounded},
+                      {"ad": "Video", "icon": Icons.play_circle_fill_rounded},
+                      {"ad": "Ses", "icon": Icons.music_note_rounded},
+                      {"ad": "Diğer", "icon": Icons.description_rounded},
+                    ].map((kategori) {
+                      String ad = kategori['ad'] as String;
+                      IconData icon = kategori['icon'] as IconData;
+                      bool isSelected = secilenKategori == ad;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: FilterChip(
+                          avatar: Icon(
+                            icon,
+                            size: 16,
+                            color:
+                                isSelected ? Colors.indigo : Colors.grey[700],
+                          ),
+                          label: Text(ad),
+                          labelStyle: TextStyle(
+                            fontSize: 13,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            color: isSelected ? Colors.indigo : Colors.black87,
+                          ),
+                          selected: isSelected,
+                          onSelected: (v) {
+                            setState(() {
+                              secilenKategori = ad;
+                              _listeyiFiltrele();
+                            });
+                          },
+                          backgroundColor: Colors.white,
+                          selectedColor: Colors.indigo.shade50,
+                          checkmarkColor: Colors.indigo,
+                          showCheckmark: false,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? Colors.indigo
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
               ),
               if (mevcutYol.isNotEmpty)
-                Card(
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                Container(
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
                     color: Colors.indigo.shade50,
-                    child: ListTile(
-                        leading: const Icon(Icons.arrow_upward,
-                            color: Colors.indigo),
-                        title: const Text("... Üst Klasör",
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.indigo)),
-                        onTap: _geriCik)),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.indigo.shade100),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.folder_open_rounded,
+                          size: 20, color: Colors.indigo),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "/$mevcutYol",
+                          style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.indigo),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      InkWell(
+                        onTap: _geriCik,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(Icons.arrow_upward_rounded,
+                                  size: 16, color: Colors.indigo),
+                              SizedBox(width: 4),
+                              Text("Üst Klasör",
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.indigo)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               Expanded(
                 child: yukleniyor
                     ? const Center(child: CircularProgressIndicator())
@@ -1072,10 +1493,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                           }
                                           if (val == 'adlandir') {
                                             _dosyaYenidenAdlandirDialog(
-                                                dosya['isim']);
+                                                dosya['isim'],
+                                                isKlasor: isKlasor);
                                           }
                                           if (val == 'sil') {
-                                            _dosyaSil(dosya['isim']);
+                                            _dosyaSil(dosya['isim'],
+                                                isKlasor: isKlasor);
                                           }
                                         },
                                         itemBuilder: (c) =>
@@ -1193,12 +1616,39 @@ class _VideoOynaticiDialogState extends State<VideoOynaticiDialog> {
 
   Future<void> _init() async {
     try {
-      _c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+      _c = VideoPlayerController.networkUrl(
+        Uri.parse(widget.url),
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+      );
       await _c.initialize();
       if (!mounted) return;
       setState(() {
         _cc = ChewieController(
-            videoPlayerController: _c, autoPlay: true, looping: false);
+          videoPlayerController: _c,
+          autoPlay: true,
+          looping: false,
+          allowFullScreen: true,
+          allowMuting: true,
+          showControls: true,
+          placeholder: Container(
+            color: Colors.black,
+            child: const Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            ),
+          ),
+          errorBuilder: (context, errorMessage) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Text(
+                  errorMessage,
+                  style: const TextStyle(color: Colors.white70),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          },
+        );
       });
     } catch (e) {
       if (!mounted) return;
@@ -1222,30 +1672,95 @@ class _VideoOynaticiDialogState extends State<VideoOynaticiDialog> {
   Widget build(BuildContext context) {
     if (_hasError) {
       return AlertDialog(
-        title: const Text("Oynatma Hatası"),
-        content: Text(_errorMessage),
+        backgroundColor: Colors.grey[900],
+        title: const Text("Oynatma Hatası",
+            style: TextStyle(color: Colors.white)),
+        content: Text(_errorMessage,
+            style: const TextStyle(color: Colors.white70)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("Kapat"),
+            child: const Text("Kapat",
+                style: TextStyle(color: Colors.white)),
           )
         ],
       );
     }
     return Dialog(
-        backgroundColor: Colors.black,
-        insetPadding: EdgeInsets.zero,
-        child: _cc != null
-            ? AspectRatio(
-                aspectRatio: _c.value.aspectRatio,
-                child: Chewie(controller: _cc!))
-            : const Center(
-                child: SizedBox(
-                  width: 50,
-                  height: 50,
-                  child: CircularProgressIndicator(color: Colors.white),
+      backgroundColor: Colors.black,
+      insetPadding: EdgeInsets.zero,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Video oynatıcı veya yükleniyor animasyonu
+          _cc != null
+              ? Center(
+                  child: AspectRatio(
+                    aspectRatio: _c.value.aspectRatio > 0
+                        ? _c.value.aspectRatio
+                        : 16 / 9,
+                    child: Chewie(controller: _cc!),
+                  ),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    CircularProgressIndicator(color: Colors.white),
+                    SizedBox(height: 16),
+                    Text(
+                      "Video yükleniyor...",
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                  ],
                 ),
-              ));
+          // Üst bar: Dosya İsmi ve Çıkış (Çarpı) Butonu
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).padding.top + 8,
+                left: 16,
+                right: 8,
+                bottom: 8,
+              ),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black87,
+                    Colors.black.withValues(alpha: 0.0),
+                  ],
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.dosyaIsmi,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded,
+                        color: Colors.white, size: 28),
+                    tooltip: "Kapat",
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

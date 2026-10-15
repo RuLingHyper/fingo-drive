@@ -164,6 +164,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx2),
+                        child: const Text("İptal"),
+                      ),
                       ElevatedButton(
                         onPressed: () async {
                           Navigator.pop(ctx2);
@@ -255,6 +259,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
             actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c2),
+                child: const Text("İptal"),
+              ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red, foregroundColor: Colors.white),

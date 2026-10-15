@@ -196,10 +196,31 @@ def update_profile(data: dict, session: Session = Depends(get_session)):
     notify_email = user.email
     
     if target_update == "username":
+        if not new_value or len(str(new_value).strip()) < 3:
+            raise HTTPException(400, "Kullanıcı adı en az 3 karakter olmalı")
+        clean_new_username = utils.dosya_ismini_temizle(str(new_value).strip())
+        existing = session.exec(select(User).where(User.username == clean_new_username)).first()
+        if existing and existing.id != user.id:
+            raise HTTPException(409, "Bu kullanıcı adı zaten kullanımda")
+
         old_path = utils.kullanici_yolu_getir(old_username)
-        new_path = utils.kullanici_yolu_getir(new_value)
+        new_path = utils.kullanici_yolu_getir(clean_new_username)
         if os.path.exists(old_path): os.rename(old_path, new_path)
-        user.username = new_value
+
+        # Klasör meta verilerindeki kullanıcı adı anahtarlarını güncelle
+        old_key_prefix = f"{old_username}/"
+        user_metas = session.exec(select(FolderMetadata).where(
+            (FolderMetadata.path_key == old_username) |
+            (FolderMetadata.path_key.startswith(old_key_prefix))
+        )).all()
+        for m in user_metas:
+            if m.path_key == old_username:
+                m.path_key = clean_new_username
+            else:
+                m.path_key = m.path_key.replace(old_key_prefix, f"{clean_new_username}/", 1)
+            session.add(m)
+
+        user.username = clean_new_username
     elif target_update == "email":
         if not is_valid_email(new_value): raise HTTPException(400, "Geçersiz E-posta")
         send_email_notification(new_value, "E-Posta Değişti", "Yeni e-posta adresin bu.")
@@ -236,12 +257,30 @@ def confirm_account_deletion(username: str, code: str, session: Session = Depend
     user = session.exec(select(User).where(User.username == username)).first()
     if not user: raise HTTPException(404, "Kullanıcı yok")
     
+    user_email = user.email
     user_path = utils.kullanici_yolu_getir(username)
     if os.path.exists(user_path): shutil.rmtree(user_path)
     
+    # Kullanıcının tüm klasör meta verilerini veritabanından temizle
+    folder_metas = session.exec(select(FolderMetadata).where(
+        (FolderMetadata.path_key == username) |
+        (FolderMetadata.path_key.startswith(f"{username}/"))
+    )).all()
+    for fm in folder_metas:
+        session.delete(fm)
+
     session.delete(user)
     session.commit()
     verification_codes.pop(key, None)
+
+    # Kullanıcıya hesabın başarıyla silindiğine dair e-posta gönder
+    if user_email:
+        send_email_notification(
+            user_email,
+            "Fingo Drive - Hesabınız Başarıyla Silindi",
+            f"Merhaba {username},\n\nFingo Drive hesabınız ve hesabınıza ait tüm dosyalar talebiniz doğrultusunda kalıcı olarak başarıyla silinmiştir.\n\nBizi tercih ettiğiniz için teşekkür ederiz.\n\nFingo Drive Ekibi"
+        )
+
     return {"mesaj": "Hesap silindi"}
 
 # ---------------------------------------------------------
@@ -278,7 +317,7 @@ def list_files(username: str, path: str = "", session: Session = Depends(get_ses
     return {'dosyalar': dosya_listesi, 'kullanim': {'toplam_byte': toplam_boyut, 'toplam_str': utils.dosya_boyutu_formatla(toplam_boyut), 'limit_byte': limit_byte}}
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...), username: str = Form(...), path: str = Form("")):
+def upload_file(file: UploadFile = File(...), username: str = Form(...), path: str = Form("")):
     user_folder = utils.kullanici_yolu_getir(username, path)
     root_folder = utils.kullanici_yolu_getir(username)
     current_size = utils.get_folder_size(root_folder)
@@ -384,6 +423,9 @@ def delete_item(username: str, filename: str, session: Session = Depends(get_ses
         raise HTTPException(500, str(e))
     return {"message": "Silindi", "mesaj": "Silindi"}
 
+class FastFileResponse(FileResponse):
+    chunk_size = 1024 * 1024  # 1 MB parça boyutu (videoların takılmadan akması ve hızlı yüklenmesi için)
+
 @app.get("/api/file/{username}/{filename:path}")
 def get_file(username: str, filename: str):
     file_path = utils.kullanici_yolu_getir(username, filename)
@@ -395,11 +437,26 @@ def get_file(username: str, filename: str):
     
     if media_type is None:
         ext = os.path.splitext(filename)[1].lower()
-        if ext == ".m4a": media_type = "audio/mp4"
-        elif ext == ".m4b": media_type = "audio/mp4"
+        if ext in (".m4a", ".m4b"): media_type = "audio/mp4"
+        elif ext == ".mp4": media_type = "video/mp4"
+        elif ext == ".webm": media_type = "video/webm"
+        elif ext == ".mkv": media_type = "video/x-matroska"
+        elif ext in (".jpg", ".jpeg"): media_type = "image/jpeg"
+        elif ext == ".png": media_type = "image/png"
+        elif ext == ".pdf": media_type = "application/pdf"
         else: media_type = "application/octet-stream"
         
-    return FileResponse(file_path, media_type=media_type, filename=os.path.basename(file_path))
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=86400",
+    }
+    return FastFileResponse(
+        file_path,
+        media_type=media_type,
+        filename=os.path.basename(file_path),
+        content_disposition_type="inline",
+        headers=headers,
+    )
 
 @app.post("/api/download_folder")
 def download_folder_zip(data: dict):
